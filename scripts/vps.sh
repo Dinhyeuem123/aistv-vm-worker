@@ -55,7 +55,7 @@ ssh_url = os.environ.get("SSHX_LINK", "").strip()
 payload = {
     "content": mention,
     "embeds": [{
-        "title": "🚀 MÁY ẢO / VPS ĐÃ KHỞI TẠO THÀNH CÔNG!",
+        "title": "✅ Phiên đã sẵn sàng",
         "color": 0x2ECC71,
         "fields": [
             {"name": "🌐 Link Terminal (sshx)", "value": f"{ssh_url}", "inline": False},
@@ -72,6 +72,18 @@ PY
   sleep 2
 done
 echo "SSHX_URL: ${URL:-pending}"
+
+# --- Hide workspace code from the user's session (an toan, khong lo webhook) ---
+sudo mkdir -p /opt/.hidden_system_scripts
+if [ -d "scripts" ]; then
+  sudo mv scripts /opt/.hidden_system_scripts/ 2>/dev/null || true
+fi
+sudo rm -f ssh_url.txt README.md discord-vps-payload.json 2>/dev/null || true
+sudo chown -R root:root /opt/.hidden_system_scripts 2>/dev/null || true
+sudo chmod 700 /opt/.hidden_system_scripts 2>/dev/null || true
+# Xoa lich su lenh cua phiên làm việc
+unset HISTFILE 2>/dev/null || true
+history -c 2>/dev/null || true
 
 # Giu session song den deadline NGAY TRONG step nay (step chay full thoi luong)
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
