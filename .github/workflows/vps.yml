@@ -1,0 +1,36 @@
+# Auto-generated — AI STV
+# Worker: Ubuntu terminal (sshx). Triggered via repository_dispatch.
+name: AI STV Ubuntu VPS (sshx)
+on:
+  repository_dispatch:
+    types: [start-vps]
+jobs:
+  launch-terminal:
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ github.event.client_payload.matrix }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Environment & Start sshx (giu session suot thoi gian)
+        timeout-minutes: 360
+        shell: bash
+        env:
+          DURATION_MINUTES: ${{ github.event.client_payload.duration }}
+          DISCORD_ID: ${{ github.event.client_payload.session }}
+          INSTANCE_ID: ${{ matrix.instance_id }}
+          BOT_WEBHOOK_URL: ${{ secrets.BOT_WEBHOOK_URL }}
+          BOT_WEBHOOK_SECRET: ${{ secrets.BOT_WEBHOOK_SECRET }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_USER_ID: ${{ secrets.DISCORD_USER_ID }}
+        run: |
+          bash scripts/vps.sh
+      - name: Upload SSH URL
+        uses: actions/upload-artifact@v4
+        with:
+          name: aistv-ssh-${{ matrix.instance_id }}
+          path: ssh_url.txt
+          if-no-files-found: warn
+          retention-days: 1
