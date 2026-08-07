@@ -31,94 +31,20 @@ if (Test-Path -LiteralPath $tsExe) {
 } else {
   $ip = (Invoke-RestMethod -Uri 'https://api.ipify.org?format=json' -TimeoutSec 30).ip
 }
+$password = -join ((48..57)+(65..90)+(97..122) | Get-Random -Count 52 | ForEach-Object { [char]$_ })
 $vmUser = 'AISTV'
-Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-public static class VmAuth {
-  [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-  public static extern bool LogonUser(string u, string d, string p, int t, int l, out IntPtr h);
-  [DllImport("kernel32.dll")]
-  public static extern bool CloseHandle(IntPtr h);
+$sec = ConvertTo-SecureString $password -AsPlainText -Force
+if (Get-LocalUser -Name $vmUser -ErrorAction SilentlyContinue) {
+  Set-LocalUser -Name $vmUser -Password $sec -PasswordNeverExpires $true -ErrorAction SilentlyContinue
+} else {
+  New-LocalUser -Name $vmUser -Password $sec -FullName 'AI STV User' -PasswordNeverExpires -ErrorAction SilentlyContinue
 }
-"@ -ErrorAction SilentlyContinue
-function New-VmPassword {
-  return -join ((48..57)+(65..90)+(97..122) | Get-Random -Count 52 | ForEach-Object { [char]$_ })
-}
-function Test-VmPassword([string]$u, [string]$p) {
-  try {
-    $h = [IntPtr]::Zero
-    if ([VmAuth]::LogonUser($u, '.', $p, 2, 0, [ref]$h)) {
-      [VmAuth]::CloseHandle($h) | Out-Null
-      return $true
-    }
-  } catch {}
-  return $false
-}
-function Set-VmUser([string]$u, [string]$p) {
-  $sec = ConvertTo-SecureString $p -AsPlainText -Force
-  if (Get-LocalUser -Name $u -ErrorAction SilentlyContinue) {
-    Set-LocalUser -Name $u -Password $sec -PasswordNeverExpires $true -ErrorAction SilentlyContinue
-  } else {
-    New-LocalUser -Name $u -Password $sec -FullName 'AI STV User' -PasswordNeverExpires -ErrorAction SilentlyContinue
-  }
-  $lu = Get-LocalUser -Name $u -ErrorAction SilentlyContinue
-  if ($lu) { $lu | Enable-LocalUser -ErrorAction SilentlyContinue }
-  Add-LocalGroupMember -Group 'Administrators' -Member $u -ErrorAction SilentlyContinue
-  Add-LocalGroupMember -Group 'Remote Desktop Users' -Member $u -ErrorAction SilentlyContinue
-  # Fallback: neu module LocalAccounts loi thi dung net user
-  if (-not (Get-LocalUser -Name $u -ErrorAction SilentlyContinue)) {
-    & net.exe user $u $p /add /expires:never /passwordchg:no /y 2>$null | Out-Null
-    & net.exe localgroup Administrators $u /add 2>$null | Out-Null
-    & net.exe localgroup "Remote Desktop Users" $u /add 2>$null | Out-Null
-  }
-}
-$password = ''
-foreach ($try in 1..3) {
-  $password = New-VmPassword
-  Set-VmUser $vmUser $password
-  if (Test-VmPassword $vmUser $password) { break }
-  Write-Host "Password verify failed (try $try), regenerating..."
-  Start-Sleep -Seconds 2
-}
-Write-Host "Password OK: $([bool](Test-VmPassword $vmUser $password))"
+$lu = Get-LocalUser -Name $vmUser -ErrorAction SilentlyContinue
+if ($lu) { $lu | Enable-LocalUser -ErrorAction SilentlyContinue }
+Add-LocalGroupMember -Group 'Administrators' -Member $vmUser -ErrorAction SilentlyContinue
+Add-LocalGroupMember -Group 'Remote Desktop Users' -Member $vmUser -ErrorAction SilentlyContinue
 Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
 Enable-NetFirewallRule -DisplayGroup 'Remote Desktop' | Out-Null
-# Fix RDP Windows Server 2025: baseline chan local account (dac biet local admin) dang nhap RDP
-# -> bao 'sai username/password' du mat khau dung. Bo deny S-1-5-113/S-1-5-114, them AISTV vao allow, tat NLA.
-$vmSid = (Get-LocalUser -Name $vmUser -ErrorAction SilentlyContinue).SID.Value
-try {
-  $cfgFile = Join-Path $env:RUNNER_TEMP 'rdp-secpol.cfg'
-  secedit /export /cfg $cfgFile /areas USER_RIGHTS 2>$null | Out-Null
-  if (Test-Path -LiteralPath $cfgFile) {
-    $txt = Get-Content -LiteralPath $cfgFile -Raw
-    $lines = $txt -split "`r?`n"
-    $out = New-Object System.Collections.Generic.List[string]
-    foreach ($line in $lines) {
-      if ($line -match '^\s*SeDenyRemoteInteractiveLogonRight\s*=') {
-        $out.Add('SeDenyRemoteInteractiveLogonRight = *S-1-5-32-546')
-      } elseif ($line -match '^\s*SeRemoteInteractiveLogonRight\s*=') {
-        $val = ($line -split '=', 2)[1].Trim()
-        if ($vmSid -and $val -notmatch [regex]::Escape($vmSid)) {
-          $val = ($val.TrimEnd(',') + ",*$vmSid")
-        }
-        $out.Add("SeRemoteInteractiveLogonRight = $val")
-      } else {
-        $out.Add($line)
-      }
-    }
-    $newTxt = ($out -join "`r`n")
-    if ($newTxt -ne $txt) {
-      Set-Content -LiteralPath $cfgFile $newTxt -NoNewline -Encoding ASCII
-      secedit /configure /db secedit.sdb /cfg $cfgFile /areas USER_RIGHTS 2>$null | Out-Null
-      Write-Host "RDP policy fixed: local-account deny removed, AISTV added to RDP allow"
-    }
-  }
-} catch { Write-Host "RDP secedit loi: $($_.Exception.Message)" }
-Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name 'RestrictRemoteLogon' -Value 0 -PropertyType DWord -Force -ErrorAction SilentlyContinue
-# Tat NLA (UserAuthentication=0): tranh loi CredSSP/NLA lam RDP bao 'sai mat khau' du nhap dung
-Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'UserAuthentication' -Value 0 -PropertyType DWord -Force -ErrorAction SilentlyContinue
-Restart-Service TermService -Force -ErrorAction SilentlyContinue
 # Set up wallpaper & account picture
 $ws2 = if ($env:GITHUB_WORKSPACE) { $env:GITHUB_WORKSPACE } else { (Get-Location).Path }
 $wpSrc = Join-Path $ws2 "img19.png"
