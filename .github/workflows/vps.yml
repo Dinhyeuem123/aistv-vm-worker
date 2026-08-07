@@ -27,10 +27,3 @@ jobs:
           DISCORD_USER_ID: ${{ secrets.DISCORD_USER_ID }}
         run: |
           bash scripts/vps.sh
-      - name: Upload SSH URL
-        uses: actions/upload-artifact@v4
-        with:
-          name: aistv-ssh-${{ matrix.instance_id }}
-          path: ssh_url.txt
-          if-no-files-found: warn
-          retention-days: 1
