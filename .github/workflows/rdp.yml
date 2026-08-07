@@ -30,10 +30,7 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        include:
-          # Kiểm tra nếu chạy qua repository_dispatch thì dùng client_payload.matrix,
-          # nếu bấm thủ công (workflow_dispatch) thì lấy từ inputs
-          ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.matrix || fromJson(format('[{"runner":"{0}","instance_id":"{1}"}]', inputs.runner, inputs.instance_id)) }}
+        include: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.matrix || fromJSON(format('[{{\"runner\":\"{0}\",\"instance_id\":\"{1}\"}}]', inputs.runner || 'windows-2025', inputs.instance_id || 'manual-1')) }}
 
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
