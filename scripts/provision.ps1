@@ -45,6 +45,23 @@ Add-LocalGroupMember -Group 'Administrators' -Member $vmUser -ErrorAction Silent
 Add-LocalGroupMember -Group 'Remote Desktop Users' -Member $vmUser -ErrorAction SilentlyContinue
 Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
 Enable-NetFirewallRule -DisplayGroup 'Remote Desktop' | Out-Null
+# Fix RDP: Windows Server 2025 baseline chan local account (dac biet local admin) dang nhap RDP
+# -> bao 'sai username/password' du mat khau dung. Go bo deny S-1-5-113/S-1-5-114 + RestrictRemoteLogon=0
+try {
+  $cfgFile = Join-Path $env:RUNNER_TEMP 'rdp-secpol.cfg'
+  secedit /export /cfg $cfgFile /areas USER_RIGHTS 2>$null | Out-Null
+  if (Test-Path -LiteralPath $cfgFile) {
+    $txt = Get-Content -LiteralPath $cfgFile -Raw
+    $newTxt = [regex]::Replace($txt, '(?m)^\s*SeDenyRemoteInteractiveLogonRight\s*=.*$', 'SeDenyRemoteInteractiveLogonRight = S-1-5-32-546')
+    if ($newTxt -ne $txt) {
+      Set-Content -LiteralPath $cfgFile $newTxt -NoNewline -Encoding ASCII
+      secedit /configure /db secedit.sdb /cfg $cfgFile /areas USER_RIGHTS 2>$null | Out-Null
+      Write-Host "RDP policy fixed: removed local-account deny logon right"
+    }
+  }
+} catch { Write-Host "RDP secedit loi: $($_.Exception.Message)" }
+Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name 'RestrictRemoteLogon' -Value 0 -PropertyType DWord -Force -ErrorAction SilentlyContinue
+Restart-Service TermService -Force -ErrorAction SilentlyContinue
 # Set up wallpaper & account picture
 $ws2 = if ($env:GITHUB_WORKSPACE) { $env:GITHUB_WORKSPACE } else { (Get-Location).Path }
 $wpSrc = Join-Path $ws2 "img19.png"
