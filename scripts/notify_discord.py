@@ -25,7 +25,7 @@ def main() -> int:
     payload = {
         "content": "<@%s>" % uid if uid else "",
         "embeds": [{
-"title": "✅ Phiên đã sẵn sàng",
+            "title": "🚀 MÁY ẢO / VPS ĐÃ KHỞI TẠO THÀNH CÔNG!",
             "color": 0x2ECC71,
             "fields": fields,
             "timestamp": datetime.now(timezone.utc).isoformat(),
