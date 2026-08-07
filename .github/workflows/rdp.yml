@@ -1,20 +1,46 @@
 # Auto-generated — AI STV
-# Worker: Windows VM (RDP + Tailscale). Triggered via repository_dispatch.
+# Worker: Windows VM (RDP + Tailscale). Triggered via repository_dispatch or manually via workflow_dispatch.
 name: AI STV Windows VM
+
 on:
   repository_dispatch:
     types: [start-vm]
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner image (e.g. windows-2025)'
+        required: true
+        default: 'windows-2025'
+      instance_id:
+        description: 'Instance ID'
+        required: true
+        default: 'manual-1'
+      duration:
+        description: 'VM Duration (minutes)'
+        required: true
+        default: '60'
+      session:
+        description: 'Discord Session ID / User ID'
+        required: false
+        default: 'manual-session'
+
 jobs:
   aistv-vm:
     strategy:
       fail-fast: false
       max-parallel: 4
       matrix:
-        include: ${{ github.event.client_payload.matrix }}
+        include:
+          # Kiểm tra nếu chạy qua repository_dispatch thì dùng client_payload.matrix,
+          # nếu bấm thủ công (workflow_dispatch) thì lấy từ inputs
+          ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.matrix || fromJson(format('[{"runner":"{0}","instance_id":"{1}"}]', inputs.runner, inputs.instance_id)) }}
+
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Connect Tailscale
         shell: pwsh
         env:
@@ -30,15 +56,17 @@ jobs:
           }
           $tsRunId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { '0' }
           & $tsExe up --authkey=$env:TAILSCALE_AUTH_KEY --hostname=STV-VM-$tsRunId --accept-routes=false --accept-dns=false --timeout=90s 2>&1
+
       - name: Provision VM
         timeout-minutes: 25
         shell: pwsh
         env:
           INSTANCE_ID: ${{ matrix.instance_id }}
-          VM_DURATION_MINUTES: ${{ github.event.client_payload.duration }}
-          DISCORD_ID: ${{ github.event.client_payload.session }}
+          VM_DURATION_MINUTES: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.duration || inputs.duration }}
+          DISCORD_ID: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.session || inputs.session }}
         run: |
           & ./scripts/provision.ps1
+
       - name: Upload clip to Driveway (optional, pluggable)
         id: upload_clip
         if: always()
@@ -68,17 +96,19 @@ jobs:
           if [ -n "$CLIP_URL" ]; then
             echo "clip_url=$CLIP_URL" >> "$GITHUB_OUTPUT"
           fi
+
       - name: Notify Bot via Webhook (event-driven, 0 polling)
         if: always()
         shell: bash
         env:
           BOT_WEBHOOK_URL: ${{ secrets.BOT_WEBHOOK_URL }}
           BOT_WEBHOOK_SECRET: ${{ secrets.BOT_WEBHOOK_SECRET }}
-          DISCORD_ID: ${{ github.event.client_payload.session }}
+          DISCORD_ID: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.session || inputs.session }}
           INSTANCE_ID: ${{ matrix.instance_id }}
           CLIP_URL: ${{ steps.upload_clip.outputs.clip_url }}
         run: |
           python scripts/notify_vm_ready.py || echo "Bot webhook notify failed"
+
       - name: Notify Discord — Session ready
         if: always()
         shell: bash
@@ -88,10 +118,11 @@ jobs:
           CLIP_URL: ${{ steps.upload_clip.outputs.clip_url }}
         run: |
           python scripts/notify_discord.py || echo "Discord notify failed"
+
       - name: Keep-Alive
         shell: pwsh
         env:
           INSTANCE_ID: ${{ matrix.instance_id }}
-          VM_DURATION_MINUTES: ${{ github.event.client_payload.duration }}
+          VM_DURATION_MINUTES: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.duration || inputs.duration }}
         run: |
           & ./scripts/keepalive.ps1
