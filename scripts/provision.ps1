@@ -36,11 +36,12 @@ $password = -join (((48..57)+(65..90)+(97..122) | Where-Object { $_ -notin @(48,
 $vmUser = 'AISTV'
 # TAO USER BANG net.exe — on dinh tren moi image, khong phu thuoc module Microsoft.PowerShell.LocalAccounts
 # (tren windows-2025 / pwsh 7.x module nay loi: Import-Module loi + New-LocalUser/Set-LocalUser that bat)
+# LUU Y: net.exe hoi "Do you want to continue? (Y/N)" khi pass dai hon 14 ky tu -> phai gui Y qua stdin, neu khong fail exit -1
 & net.exe user $vmUser > $null 2>&1
 if ($LASTEXITCODE -eq 0) {
-  & net.exe user $vmUser $password /passwordchg:no /expires:never
+  "Y" | & net.exe user $vmUser $password /passwordchg:no /expires:never
 } else {
-  & net.exe user $vmUser $password /add /fullname:"AI STV User" /passwordchg:no /expires:never
+  "Y" | & net.exe user $vmUser $password /add /fullname:"AI STV User" /passwordchg:no /expires:never
 }
 if ($LASTEXITCODE -ne 0) {
   Write-Error "TAO USER $vmUser THAT BAI (net.exe exit $LASTEXITCODE) — khong gui creds, bao fail"
